@@ -6,11 +6,14 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.security.Principal;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.TimeUnit;
 
 import javax.servlet.ServletException;
+import javax.servlet.SessionTrackingMode;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -42,21 +45,18 @@ public class EmbeddedJettyOidcApp {
 		connector.setHost("100.115.92.201");
 		server.addConnector(connector);
 
-		final String issuerUri = System.getenv("OIDC_ISSUER_URI"); // e.g., "https://accounts.google.com" or
-																	// "https://dev-xxxxxx.okta.com/oauth2/default"
-		final String clientId = System.getenv("OIDC_CLIENT_ID"); // Your client ID
-		final String clientSecret = System.getenv("OIDC_CLIENT_SECRET"); // Your client secret
+		final String issuerUri = System.getenv("OIDC_ISSUER_URI");
+		final String clientId = System.getenv("OIDC_CLIENT_ID");
+		final String clientSecret = System.getenv("OIDC_CLIENT_SECRET");
 
 		if (issuerUri == null || clientId == null || clientSecret == null) {
 			System.err.println("ERROR: OIDC_ISSUER_URI, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET environment variables must be set.");
-			System.err.println("Example for Google: OIDC_ISSUER_URI=https://accounts.google.com");
-			System.err.println("Make sure your OIDC provider's redirect URI is configured to: http://" + connector.getHost() + ":" + port
-					+ "/j_security_check");
 			System.exit(1);
 		}
 
 		final OpenIdConfiguration openIdConfig = new OpenIdConfiguration(issuerUri, clientId, clientSecret);
 		openIdConfig.addScopes("email", "profile");
+		openIdConfig.setLogoutWhenIdTokenIsExpired(true);
 		openIdConfig.setAuthenticateNewUsers(false);
 		// openIdConfig.setErrorPage("/error");
 		// openIdConfig.setLogoutRedirectPage("/logout-success");
@@ -82,16 +82,23 @@ public class EmbeddedJettyOidcApp {
 		securityHandler.addConstraintMapping(mapping);
 
 		final SessionHandler sessionHandler = new SessionHandler();
+		sessionHandler.setSessionTrackingModes(EnumSet.of(SessionTrackingMode.COOKIE));
+		sessionHandler.getSessionCookieConfig().setName("MY_AUTH_COOKIE");
+		sessionHandler.setRefreshCookieAge((int) TimeUnit.HOURS.toSeconds(1));
+		sessionHandler.getSessionCookieConfig().setMaxAge((int) TimeUnit.HOURS.toSeconds(2));
+		sessionHandler.setMaxInactiveInterval((int) TimeUnit.HOURS.toSeconds(2));
 		sessionHandler.setHandler(securityHandler);
 
-		final ServletContextHandler servletHandler = new ServletContextHandler(sessionHandler, "/", ServletContextHandler.SESSIONS);
+		final ServletContextHandler servletHandler = new ServletContextHandler();
 		servletHandler.setContextPath("/");
+		servletHandler.setSessionHandler(sessionHandler);
 		servletHandler.setSecurityHandler(securityHandler);
 		servletHandler.addServlet(new ServletHolder(new HelloServlet()), "/hello");
 		servletHandler.addServlet(new ServletHolder(new ProtectedServlet()), "/protected/hello");
 
 		server.insertHandler(securityHandler);
 		server.setHandler(servletHandler);
+
 		server.start();
 		server.join();
 	}
