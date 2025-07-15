@@ -77,7 +77,7 @@ public class EmbeddedJettyOidcApp {
 		constraint.setRoles(new String[] { "**" }); // Any authenticated user (any role)
 
 		final ConstraintMapping mapping = new ConstraintMapping();
-		mapping.setPathSpec("/protected/*");
+		mapping.setPathSpec("/login/*");
 		mapping.setConstraint(constraint);
 		securityHandler.addConstraintMapping(mapping);
 
@@ -93,8 +93,10 @@ public class EmbeddedJettyOidcApp {
 		servletHandler.setContextPath("/");
 		servletHandler.setSessionHandler(sessionHandler);
 		servletHandler.setSecurityHandler(securityHandler);
-		servletHandler.addServlet(new ServletHolder(new HelloServlet()), "/hello");
-		servletHandler.addServlet(new ServletHolder(new ProtectedServlet()), "/protected/hello");
+		servletHandler.addServlet(new ServletHolder(new HelloServlet()), "/");
+		servletHandler.addServlet(new ServletHolder(new LoginServlet()), "/login");
+		servletHandler.addServlet(new ServletHolder(new LogoutServlet()), "/logout");
+		servletHandler.addServlet(new ServletHolder(new InfoServlet()), "/info");
 
 		server.insertHandler(securityHandler);
 		server.setHandler(servletHandler);
@@ -105,23 +107,49 @@ public class EmbeddedJettyOidcApp {
 
 	@SuppressWarnings("serial")
 	public static class HelloServlet extends HttpServlet {
-		@SuppressWarnings("resource")
+		@SuppressWarnings({ "resource" })
 		@Override
 		protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws ServletException, IOException {
 			resp.setContentType("text/html");
-			resp.getWriter().println("<h1>Hello from Public Servlet!</h1>");
-			resp.getWriter().println("<p><a href=\"/protected/hello\">Go to Protected Page</a></p>");
+			PrintWriter w = resp.getWriter();
+			w.println("<h1>Root</h1>");
+
+			final Principal userPrincipal = req.getUserPrincipal();
+			final String username = userPrincipal != null ? userPrincipal.getName() : null;
+			w.println("<p>username: " + username + "</p>");
+
+			if (username == null) {
+				w.println("<p><a href=\"/login\">Login</a></p>");
+			}
+			else {
+				w.println("<p><a href=\"/logout\">Logout " + username + "</a></p>");
+			}
 		}
 	}
 
 	@SuppressWarnings("serial")
-	public static class ProtectedServlet extends HttpServlet {
+	public static class LoginServlet extends HttpServlet {
+		@Override
+		protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws ServletException, IOException {
+			resp.sendRedirect("/");
+		}
+	}
+
+	@SuppressWarnings("serial")
+	public static class LogoutServlet extends HttpServlet {
+		@Override
+		protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws ServletException, IOException {
+			req.logout();
+		}
+	}
+
+	@SuppressWarnings("serial")
+	public static class InfoServlet extends HttpServlet {
 		@SuppressWarnings({ "resource", "unchecked" })
 		@Override
 		protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws ServletException, IOException {
 			resp.setContentType("text/html");
 			final PrintWriter w = resp.getWriter();
-			w.println("<h1>Hello from Protected Servlet!</h1>");
 
 			final Principal userPrincipal = req.getUserPrincipal();
 			if (userPrincipal != null) {
@@ -145,11 +173,8 @@ public class EmbeddedJettyOidcApp {
 
 			}
 			else {
-				w.println("<p>User is not authenticated (this should not happen if accessed via /protected/)</p>");
+				w.println("<p>User is not authenticated.</p>");
 			}
-			w.println("<p><a href=\"/\">Go to Public Page</a></p>");
-			// Note: Jetty's OIDC module handles logout via /j_security_check?action=logout
-			w.println("<p><a href=\"/j_security_check?action=logout\">Logout</a></p>");
 		}
 	}
 }
