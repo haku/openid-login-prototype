@@ -19,7 +19,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
-import org.eclipse.jetty.security.ConstraintMapping;
 import org.eclipse.jetty.security.ConstraintSecurityHandler;
 import org.eclipse.jetty.security.DefaultIdentityService;
 import org.eclipse.jetty.security.openid.OpenIdAuthenticator;
@@ -58,8 +57,6 @@ public class EmbeddedJettyOidcApp {
 		openIdConfig.addScopes("email", "profile");
 		openIdConfig.setLogoutWhenIdTokenIsExpired(true);
 		openIdConfig.setAuthenticateNewUsers(false);
-		// openIdConfig.setErrorPage("/error");
-		// openIdConfig.setLogoutRedirectPage("/logout-success");
 
 		final OpenIdLoginService loginService = new OpenIdLoginService(openIdConfig);
 		loginService.setIdentityService(new DefaultIdentityService());
@@ -76,11 +73,6 @@ public class EmbeddedJettyOidcApp {
 		constraint.setAuthenticate(true);
 		constraint.setRoles(new String[] { "**" }); // Any authenticated user (any role)
 
-		final ConstraintMapping mapping = new ConstraintMapping();
-		mapping.setPathSpec("/login/*");
-		mapping.setConstraint(constraint);
-		securityHandler.addConstraintMapping(mapping);
-
 		final SessionHandler sessionHandler = new SessionHandler();
 		sessionHandler.setSessionTrackingModes(EnumSet.of(SessionTrackingMode.COOKIE));
 		sessionHandler.getSessionCookieConfig().setName("MY_AUTH_COOKIE");
@@ -94,7 +86,6 @@ public class EmbeddedJettyOidcApp {
 		servletHandler.setSessionHandler(sessionHandler);
 		servletHandler.setSecurityHandler(securityHandler);
 		servletHandler.addServlet(new ServletHolder(new HelloServlet()), "/");
-		servletHandler.addServlet(new ServletHolder(new LoginServlet()), "/login");
 		servletHandler.addServlet(new ServletHolder(new LogoutServlet()), "/logout");
 		servletHandler.addServlet(new ServletHolder(new InfoServlet()), "/info");
 
@@ -110,6 +101,13 @@ public class EmbeddedJettyOidcApp {
 		@SuppressWarnings({ "resource" })
 		@Override
 		protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws ServletException, IOException {
+			if ("login".equals(req.getParameter("action"))) {
+				if (!req.authenticate(resp)) {
+					resp.sendError(HttpServletResponse.SC_FORBIDDEN);
+					return;
+				}
+			}
+
 			resp.setContentType("text/html");
 			PrintWriter w = resp.getWriter();
 			w.println("<h1>Root</h1>");
@@ -119,19 +117,11 @@ public class EmbeddedJettyOidcApp {
 			w.println("<p>username: " + username + "</p>");
 
 			if (username == null) {
-				w.println("<p><a href=\"/login\">Login</a></p>");
+				w.println("<p><a href=\"?action=login\">Login</a></p>");
 			}
 			else {
 				w.println("<p><a href=\"/logout\">Logout " + username + "</a></p>");
 			}
-		}
-	}
-
-	@SuppressWarnings("serial")
-	public static class LoginServlet extends HttpServlet {
-		@Override
-		protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws ServletException, IOException {
-			resp.sendRedirect("/");
 		}
 	}
 
