@@ -19,7 +19,9 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
+import org.eclipse.jetty.http.HttpCookie;
 import org.eclipse.jetty.http.HttpStatus;
+import org.eclipse.jetty.http.HttpCookie.SameSite;
 import org.eclipse.jetty.security.ConstraintSecurityHandler;
 import org.eclipse.jetty.security.DefaultIdentityService;
 import org.eclipse.jetty.security.openid.OpenIdAuthenticator;
@@ -73,6 +75,8 @@ public class EmbeddedJettyOidcApp {
 		final SessionHandler sessionHandler = new SessionHandler();
 		sessionHandler.setSessionTrackingModes(EnumSet.of(SessionTrackingMode.COOKIE));
 		sessionHandler.getSessionCookieConfig().setName("MY_AUTH_COOKIE");
+		sessionHandler.getSessionCookieConfig().setHttpOnly(true);
+		sessionHandler.getSessionCookieConfig().setComment(HttpCookie.getCommentWithAttributes("", true, SameSite.LAX, false));
 		sessionHandler.setRefreshCookieAge((int) TimeUnit.HOURS.toSeconds(1));
 		sessionHandler.getSessionCookieConfig().setMaxAge((int) TimeUnit.HOURS.toSeconds(2));
 		sessionHandler.setMaxInactiveInterval((int) TimeUnit.HOURS.toSeconds(2));
