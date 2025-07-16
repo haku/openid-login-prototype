@@ -29,7 +29,6 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.eclipse.jetty.util.security.Constraint;
 
 // https://github.com/jetty/jetty.project/blob/62f6d02253eb937550da88934a633f692dc57c87/documentation/jetty/modules/code/examples/src/main/java/org/eclipse/jetty/docs/programming/security/OpenIdDocs.java
 
@@ -41,7 +40,7 @@ public class EmbeddedJettyOidcApp {
 		final Server server = new Server();
 		final ServerConnector connector = new ServerConnector(server);
 		connector.setPort(port);
-		connector.setHost("100.115.92.201");
+		connector.setHost("127.0.0.1");
 		server.addConnector(connector);
 
 		final String issuerUri = System.getenv("OIDC_ISSUER_URI");
@@ -68,11 +67,6 @@ public class EmbeddedJettyOidcApp {
 		securityHandler.setAuthenticator(authenticator);
 		securityHandler.setRealmName(issuerUri);
 
-		final Constraint constraint = new Constraint();
-		constraint.setName("auth");
-		constraint.setAuthenticate(true);
-		constraint.setRoles(new String[] { "**" }); // Any authenticated user (any role)
-
 		final SessionHandler sessionHandler = new SessionHandler();
 		sessionHandler.setSessionTrackingModes(EnumSet.of(SessionTrackingMode.COOKIE));
 		sessionHandler.getSessionCookieConfig().setName("MY_AUTH_COOKIE");
@@ -89,8 +83,8 @@ public class EmbeddedJettyOidcApp {
 		servletHandler.addServlet(new ServletHolder(new LogoutServlet()), "/logout");
 		servletHandler.addServlet(new ServletHolder(new InfoServlet()), "/info");
 
-		server.insertHandler(securityHandler);
 		server.setHandler(servletHandler);
+		RequestLoggingFilter.addTo(servletHandler);
 
 		server.start();
 		server.join();
