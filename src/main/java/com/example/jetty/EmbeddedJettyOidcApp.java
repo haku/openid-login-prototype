@@ -19,11 +19,14 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
+import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.security.ConstraintSecurityHandler;
 import org.eclipse.jetty.security.DefaultIdentityService;
 import org.eclipse.jetty.security.openid.OpenIdAuthenticator;
 import org.eclipse.jetty.security.openid.OpenIdConfiguration;
 import org.eclipse.jetty.security.openid.OpenIdLoginService;
+import org.eclipse.jetty.server.Authentication;
+import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.session.SessionHandler;
@@ -90,20 +93,38 @@ public class EmbeddedJettyOidcApp {
 		server.join();
 	}
 
+	/**
+	 * This is to work around an issue where org.eclipse.jetty.server.Request.authenticate()
+	 * always throws ServletException even when everything is working fine,
+	 * because it does not know about org.eclipse.jetty.server.Authentication.Challenge.
+	 */
+	public static void startAuthFlow(final HttpServletRequest req, final HttpServletResponse resp) throws IOException, ServletException {
+		final Request jreq = (Request) req;
+		final Authentication auth = jreq.getAuthentication();
+		if (auth == null) throw new IllegalStateException("auth system is not configured.");
+		if (!(auth instanceof Authentication.Deferred)) throw new IllegalStateException("auth was not correct class: " + auth.getClass());
+		final Authentication newAuth = ((Authentication.Deferred) auth).authenticate(req, resp);
+		jreq.setAuthentication(newAuth);
+
+		if (!(newAuth instanceof Authentication.Challenge)) {
+			// If got this far but did not return a challenge, then something is broken in the openid config.
+			resp.sendError(HttpStatus.INTERNAL_SERVER_ERROR_500);
+			return;
+		}
+	}
+
 	@SuppressWarnings("serial")
 	public static class HelloServlet extends HttpServlet {
 		@SuppressWarnings({ "resource" })
 		@Override
 		protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws ServletException, IOException {
 			if ("login".equals(req.getParameter("action"))) {
-				if (!req.authenticate(resp)) {
-					resp.sendError(HttpServletResponse.SC_FORBIDDEN);
-					return;
-				}
+				startAuthFlow(req, resp);
+				return;
 			}
 
 			resp.setContentType("text/html");
-			PrintWriter w = resp.getWriter();
+			final PrintWriter w = resp.getWriter();
 			w.println("<h1>Root</h1>");
 
 			final Principal userPrincipal = req.getUserPrincipal();
@@ -142,7 +163,7 @@ public class EmbeddedJettyOidcApp {
 				final HttpSession session = req.getSession(false);
 				if (session != null) {
 					final Map<String, ?> claims = (Map<String, ?>) session.getAttribute(OpenIdAuthenticator.CLAIMS);
-					for (Entry<String, ?> i : claims.entrySet()) {
+					for (final Entry<String, ?> i : claims.entrySet()) {
 						Object value = i.getValue();
 						if (value instanceof Object[]) value = Arrays.toString((Object[]) value);
 						w.println("<p>" + i.getKey() + " = " + value + "</p>");
