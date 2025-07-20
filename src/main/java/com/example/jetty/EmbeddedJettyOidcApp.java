@@ -3,7 +3,11 @@
 package com.example.jetty;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintWriter;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -11,6 +15,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.servlet.ServletException;
 import javax.servlet.SessionTrackingMode;
@@ -20,8 +25,8 @@ import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
 import org.eclipse.jetty.http.HttpCookie;
-import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpCookie.SameSite;
+import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.security.ConstraintSecurityHandler;
 import org.eclipse.jetty.security.DefaultIdentityService;
 import org.eclipse.jetty.security.openid.OpenIdAuthenticator;
@@ -57,8 +62,16 @@ public class EmbeddedJettyOidcApp {
 			System.exit(1);
 		}
 
-		final OpenIdConfiguration openIdConfig = new OpenIdConfiguration(issuerUri, clientId, clientSecret);
-		openIdConfig.addScopes("email", "profile");
+		final AtomicReference<String> userInfoEndpoint = new AtomicReference<>();
+		final OpenIdConfiguration openIdConfig = new OpenIdConfiguration(issuerUri, clientId, clientSecret) {
+			@Override
+			protected void processMetadata(Map<String, Object> discoveryDocument) {
+				super.processMetadata(discoveryDocument);
+				userInfoEndpoint.set((String) discoveryDocument.get("userinfo_endpoint"));
+				System.out.println("userinfo_endpoint=" + userInfoEndpoint.get());
+			}
+		};
+		openIdConfig.addScopes("email", "profile", "openid");
 		openIdConfig.setLogoutWhenIdTokenIsExpired(true);
 		openIdConfig.setAuthenticateNewUsers(false);
 
@@ -89,6 +102,7 @@ public class EmbeddedJettyOidcApp {
 		servletHandler.addServlet(new ServletHolder(new HelloServlet()), "/");
 		servletHandler.addServlet(new ServletHolder(new LogoutServlet()), "/logout");
 		servletHandler.addServlet(new ServletHolder(new InfoServlet()), "/info");
+		servletHandler.addServlet(new ServletHolder(new UserInfoServlet(userInfoEndpoint)), "/userinfo");
 
 		server.setHandler(servletHandler);
 		RequestLoggingFilter.addTo(servletHandler);
@@ -149,6 +163,40 @@ public class EmbeddedJettyOidcApp {
 		@Override
 		protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws ServletException, IOException {
 			req.logout();
+		}
+	}
+
+	@SuppressWarnings("serial")
+	public static class UserInfoServlet extends HttpServlet {
+		private final AtomicReference<String> userInfoEndpoint;
+
+		public UserInfoServlet(AtomicReference<String> userInfoEndpoint) {
+			this.userInfoEndpoint = userInfoEndpoint;
+		}
+
+		@Override
+		protected void doGet(final HttpServletRequest req, final HttpServletResponse resp) throws ServletException, IOException {
+			resp.setContentType("text/plain");
+
+			final Map<String, Object> response = (Map<String, Object>) req.getSession().getAttribute(OpenIdAuthenticator.RESPONSE);
+			final String accessToken = (String) response.get("access_token");
+
+			if (accessToken != null) {
+				URL url = new URL(this.userInfoEndpoint.get());
+				HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+				conn.setRequestMethod("GET");
+				conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+
+				resp.getWriter().println("code: " + conn.getResponseCode());
+				try (InputStream is = conn.getInputStream()) {
+					String body = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+					resp.getWriter().println(body);
+				}
+			}
+			else {
+				resp.getWriter().println("missing accessToken.");
+			}
+
 		}
 	}
 
