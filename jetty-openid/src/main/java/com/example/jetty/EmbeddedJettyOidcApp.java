@@ -50,7 +50,7 @@ public class EmbeddedJettyOidcApp {
 		final Server server = new Server();
 		final ServerConnector connector = new ServerConnector(server);
 		connector.setPort(port);
-		connector.setHost("127.0.0.1");
+		connector.setHost("192.168.1.9");
 		server.addConnector(connector);
 
 		final String issuerUri = System.getenv("OIDC_ISSUER_URI");
