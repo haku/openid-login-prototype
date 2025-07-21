@@ -5,18 +5,24 @@ package com.example.openid;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.URI;
-import java.security.Principal;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import javax.servlet.ServletException;
+import javax.servlet.SessionTrackingMode;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 
+import org.eclipse.jetty.http.HttpCookie;
+import org.eclipse.jetty.http.HttpCookie.SameSite;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.slf4j.Logger;
@@ -49,6 +55,7 @@ import com.nimbusds.oauth2.sdk.http.HTTPResponse;
 import com.nimbusds.oauth2.sdk.id.ClientID;
 import com.nimbusds.oauth2.sdk.id.Issuer;
 import com.nimbusds.oauth2.sdk.id.State;
+import com.nimbusds.oauth2.sdk.id.Subject;
 import com.nimbusds.oauth2.sdk.token.AccessToken;
 import com.nimbusds.oauth2.sdk.token.RefreshToken;
 import com.nimbusds.openid.connect.sdk.AuthenticationErrorResponse;
@@ -75,6 +82,8 @@ public class Main {
 
 	private static final int CONNECT_TIMEOUT_MILLIS = 5000;
 	private static final int READ_TIMEOUT_MILLIS = 5000;
+
+	private static final String SESSION_ATTR_CLAIMSET = "claimset";
 
 	private static final Logger LOG = LoggerFactory.getLogger(Main.class);
 
@@ -107,8 +116,18 @@ public class Main {
 		connector.setHost(HOST);
 		server.addConnector(connector);
 
+		final SessionHandler sessionHandler = new SessionHandler();
+		sessionHandler.setSessionTrackingModes(EnumSet.of(SessionTrackingMode.COOKIE));
+		sessionHandler.getSessionCookieConfig().setName("MY_AUTH_COOKIE");
+		sessionHandler.getSessionCookieConfig().setHttpOnly(true);
+		sessionHandler.getSessionCookieConfig().setComment(HttpCookie.getCommentWithAttributes("", true, SameSite.LAX, false));
+		sessionHandler.setRefreshCookieAge((int) TimeUnit.HOURS.toSeconds(1));
+		sessionHandler.getSessionCookieConfig().setMaxAge((int) TimeUnit.HOURS.toSeconds(2));
+		sessionHandler.setMaxInactiveInterval((int) TimeUnit.HOURS.toSeconds(2));
+
 		final ServletContextHandler servletHandler = new ServletContextHandler();
 		servletHandler.setContextPath("/");
+		servletHandler.setSessionHandler(sessionHandler);
 		servletHandler.addServlet(new ServletHolder(new HelloServlet()), "/");
 		servletHandler.addServlet(new ServletHolder(new CallbackServlet()), CALLBACK);
 
@@ -232,27 +251,35 @@ public class Main {
 			final RefreshToken refreshToken = tokenSuccessResponse.getOIDCTokens().getRefreshToken();
 			LOG.info("refreshToken: {}", refreshToken);
 
-			// TODO now do your own session management lol.  or use the jetty one?
+			final HttpSession session = req.getSession(true);
+			session.setAttribute(SESSION_ATTR_CLAIMSET, claimsSet);
 
 			// userinfo on needed if required info was not included in the JWT claims above.
-			final HTTPResponse httpResponse = new UserInfoRequest(Main.this.opMetadata.getUserInfoEndpointURI(), accessToken)
-					.toHTTPRequest()
-					.send();
-			UserInfoResponse userInfoResponse;
-			try {
-				userInfoResponse = UserInfoResponse.parse(httpResponse);
-			}
-			catch (final ParseException e) {
-				throw new ServletException(e);
-			}
-			if (!userInfoResponse.indicatesSuccess()) {
-				final UserInfoErrorResponse errorResponse = userInfoResponse.toErrorResponse();
-				resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Userinfo error: " + errorResponse.getErrorObject().toJSONObject());
-				return;
-			}
-			final UserInfo userInfo = userInfoResponse.toSuccessResponse().getUserInfo();
+			final UserInfo userInfo = fetchUserInfo(accessToken, resp);
+			if (userInfo == null) return;
 			LOG.info("userInfo: {}", userInfo);
+
+			resp.sendRedirect("/");
 		}
+	}
+
+	private UserInfo fetchUserInfo(final AccessToken accessToken, final HttpServletResponse resp) throws IOException, ServletException {
+		final HTTPResponse httpResponse = new UserInfoRequest(Main.this.opMetadata.getUserInfoEndpointURI(), accessToken)
+				.toHTTPRequest()
+				.send();
+		UserInfoResponse userInfoResponse;
+		try {
+			userInfoResponse = UserInfoResponse.parse(httpResponse);
+		}
+		catch (final ParseException e) {
+			throw new ServletException(e);
+		}
+		if (!userInfoResponse.indicatesSuccess()) {
+			final UserInfoErrorResponse errorResponse = userInfoResponse.toErrorResponse();
+			resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Userinfo error: " + errorResponse.getErrorObject().toJSONObject());
+			return null;
+		}
+		return userInfoResponse.toSuccessResponse().getUserInfo();
 	}
 
 	@SuppressWarnings("serial")
@@ -274,9 +301,16 @@ public class Main {
 			final PrintWriter w = resp.getWriter();
 			w.println("<h1>Root</h1>");
 
-			final Principal userPrincipal = req.getUserPrincipal();
-			final String username = userPrincipal != null ? userPrincipal.getName() : null;
+			final HttpSession sesson = req.getSession(false);
+			final String sessionId = sesson != null ? sesson.getId() : null;
+
+			final IDTokenClaimsSet claimset = sesson != null ? (IDTokenClaimsSet) sesson.getAttribute(SESSION_ATTR_CLAIMSET) : null;
+			final Subject subject = claimset != null ? claimset.getSubject() : null;
+			final String username = subject != null ? subject.getValue() : null;
+
+			w.println("<p>session: " + sessionId + "</p>");
 			w.println("<p>username: " + username + "</p>");
+			w.println("<p>claimset: " + claimset + "</p>");
 
 			if (username == null) {
 				w.println("<p><a href=\"?action=login\">Login</a></p>");
