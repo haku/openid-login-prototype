@@ -1,4 +1,4 @@
-package com.example.jetty;
+package com.example.openid;
 
 import java.io.IOException;
 import java.util.Enumeration;

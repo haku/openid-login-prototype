@@ -1,6 +1,6 @@
 // src/main/java/com/example/jetty/EmbeddedJettyOidcApp.java
 
-package com.example.jetty;
+package com.example.openid;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,7 +42,7 @@ import org.eclipse.jetty.servlet.ServletHolder;
 
 // https://github.com/jetty/jetty.project/blob/62f6d02253eb937550da88934a633f692dc57c87/documentation/jetty/modules/code/examples/src/main/java/org/eclipse/jetty/docs/programming/security/OpenIdDocs.java
 
-public class EmbeddedJettyOidcApp {
+public class Main {
 
 	@SuppressWarnings("resource")
 	public static void main(final String[] args) throws Exception {
