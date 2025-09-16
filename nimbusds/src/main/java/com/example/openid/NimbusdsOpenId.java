@@ -3,18 +3,24 @@ package com.example.openid;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import javax.servlet.ServletException;
+import javax.servlet.SessionTrackingMode;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
+import org.eclipse.jetty.http.HttpCookie;
+import org.eclipse.jetty.http.HttpCookie.SameSite;
+import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.slf4j.Logger;
@@ -47,6 +53,7 @@ import com.nimbusds.oauth2.sdk.http.HTTPResponse;
 import com.nimbusds.oauth2.sdk.id.ClientID;
 import com.nimbusds.oauth2.sdk.id.Issuer;
 import com.nimbusds.oauth2.sdk.id.State;
+import com.nimbusds.oauth2.sdk.id.Subject;
 import com.nimbusds.oauth2.sdk.token.AccessToken;
 import com.nimbusds.oauth2.sdk.token.RefreshToken;
 import com.nimbusds.openid.connect.sdk.AuthenticationErrorResponse;
@@ -94,6 +101,16 @@ public class NimbusdsOpenId {
 	}
 
 	public void addToHandler(final ServletContextHandler handler) {
+		final SessionHandler sessionHandler = new SessionHandler();
+		sessionHandler.setSessionTrackingModes(EnumSet.of(SessionTrackingMode.COOKIE));
+		sessionHandler.getSessionCookieConfig().setName("MY_AUTH_COOKIE");
+		sessionHandler.getSessionCookieConfig().setHttpOnly(true);
+		sessionHandler.getSessionCookieConfig().setComment(HttpCookie.getCommentWithAttributes("", true, SameSite.LAX, false));
+		sessionHandler.setRefreshCookieAge((int) TimeUnit.HOURS.toSeconds(1));
+		sessionHandler.getSessionCookieConfig().setMaxAge((int) TimeUnit.HOURS.toSeconds(2));
+		sessionHandler.setMaxInactiveInterval((int) TimeUnit.HOURS.toSeconds(2));
+		handler.setSessionHandler(sessionHandler);
+
 		handler.addServlet(new ServletHolder(new CallbackServlet()), CALLBACK);
 	}
 
@@ -266,10 +283,30 @@ public class NimbusdsOpenId {
 		return userInfoResponse.toSuccessResponse().getUserInfo();
 	}
 
-	public IDTokenClaimsSet getClaimSet(final HttpServletRequest req) {
+	public SessionInfo getSessionInfo(final HttpServletRequest req) {
 		final HttpSession session = req.getSession(false);
-		if (session == null) return null;
-		return (IDTokenClaimsSet) session.getAttribute(SESSION_ATTR_CLAIMSET);
+		if (session == null) return new SessionInfo(null);
+		return new SessionInfo((IDTokenClaimsSet) session.getAttribute(SESSION_ATTR_CLAIMSET));
+	}
+
+	public static class SessionInfo {
+		private final IDTokenClaimsSet claimsSet;
+		private final String username;
+
+		public SessionInfo(final IDTokenClaimsSet claimsSet) {
+			this.claimsSet = claimsSet;
+
+			final Subject subject = this.claimsSet != null ? this.claimsSet.getSubject() : null;
+			this.username = subject != null ? subject.getValue() : null;
+		}
+
+		public String getUsername() {
+			return this.username;
+		}
+
+		public IDTokenClaimsSet getClaimsSet() {
+			return this.claimsSet;
+		}
 	}
 
 }
